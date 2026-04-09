@@ -252,6 +252,113 @@ Authorization: Bearer <your_token>
 
 ---
 
+## 🔎 Method-Level Permission Flow
+
+The most direct way to understand permission checking in this project is:
+
+1. Spring MVC first resolves which controller method will handle the request
+2. `AuthInterceptor` runs before the controller method body executes
+3. The interceptor validates the token and loads the current user's permission set
+4. `PermissionGuard` reads the target method's `@RequirePermission(...)`
+5. If the permission is present, the request enters the controller and service
+6. If the permission is missing, the request stops with `403 Forbidden`
+
+So the order is not "enter the controller, then decide".
+The real order is "resolve the controller method first, then check its permission annotation before execution".
+
+### Request Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant Dispatcher as DispatcherServlet
+    participant Mapping as HandlerMapping
+    participant Interceptor as AuthInterceptor
+    participant JWT as JwtService
+    participant UserRepo as UserRepository
+    participant PermRepo as PermissionRepository
+    participant Guard as PermissionGuard
+    participant Controller as UserController
+    participant Service as UserServiceImpl
+
+    Client->>Dispatcher: PUT /api/users/{id}\nAuthorization: Bearer xxx
+    Dispatcher->>Mapping: Resolve handler method
+    Mapping-->>Dispatcher: UserController.updateUser(...)
+    Dispatcher->>Interceptor: preHandle(request, response, handler)
+
+    Interceptor->>Interceptor: Validate Authorization header
+    Interceptor->>JWT: parseToken(token)
+    JWT-->>Interceptor: userId, username
+    Interceptor->>UserRepo: findById(userId)
+    UserRepo-->>Interceptor: enabled user
+    Interceptor->>PermRepo: findPermissionCodesByUserId(userId)
+    PermRepo-->>Interceptor: permission codes
+    Interceptor->>Interceptor: CurrentUserContext.set(...)
+
+    Interceptor->>Guard: checkPermission(handlerMethod)
+    Guard->>Guard: Read @RequirePermission(USER_UPDATE)
+    Guard->>Guard: Check "user:update" in current permissions
+
+    alt Permission granted
+        Guard-->>Interceptor: pass
+        Interceptor-->>Dispatcher: true
+        Dispatcher->>Controller: execute updateUser(...)
+        Controller->>Service: updateUser(id, request)
+        Service-->>Controller: response
+        Controller-->>Client: 200 Success
+    else Permission denied
+        Guard-->>Dispatcher: throw ForbiddenException
+        Dispatcher-->>Client: 403 Forbidden
+    end
+```
+
+### Method-Level Decision Flow
+
+```mermaid
+flowchart TD
+    A[Request enters /api/**] --> B[Spring resolves target controller method]
+    B --> C[AuthInterceptor.preHandle]
+    C --> D{Bearer token exists?}
+    D -- No --> E[401 Unauthenticated]
+    D -- Yes --> F[JwtService parses token]
+    F --> G{Token valid?}
+    G -- No --> E
+    G -- Yes --> H[Load user by userId]
+    H --> I{User exists and enabled?}
+    I -- No --> E
+    I -- Yes --> J[Load permission codes by user-role-permission mapping]
+    J --> K[Save user and permissions into CurrentUserContext]
+    K --> L[PermissionGuard reads handler method annotation]
+    L --> M{Method or class has @RequirePermission?}
+    M -- No --> N[Allow request]
+    M -- Yes --> O[Get required code like user:update]
+    O --> P{Current user contains required code?}
+    P -- No --> Q[403 Forbidden]
+    P -- Yes --> N
+    N --> R[Controller method executes]
+    R --> S[Service executes business logic]
+```
+
+### What Is Checked at Method Level
+
+For a method such as `PUT /api/users/{id}`, Spring resolves the handler as `UserController.updateUser(...)`.
+That method is annotated with `@RequirePermission(PermissionCode.USER_UPDATE)`, so `PermissionGuard` converts it to the permission code `user:update` and checks whether the current user already has that code in `AuthenticatedUser.permissions`.
+
+If the permission exists, the method body executes.
+If the permission does not exist, a `ForbiddenException` is thrown before the controller method runs.
+
+### Key Source Files
+
+* `src/main/java/com/example/authdemo/auth/AuthInterceptor.java`
+* `src/main/java/com/example/authdemo/auth/PermissionGuard.java`
+* `src/main/java/com/example/authdemo/auth/RequirePermission.java`
+* `src/main/java/com/example/authdemo/auth/AuthenticatedUser.java`
+* `src/main/java/com/example/authdemo/repository/PermissionRepository.java`
+* `src/main/java/com/example/authdemo/controller/UserController.java`
+* `src/main/java/com/example/authdemo/controller/RoleController.java`
+
+---
+
 ## 🛡️ Best Practices
 
 * Store secrets in environment variables
@@ -270,4 +377,3 @@ Authorization: Bearer <your_token>
 * Flexible configuration via environment variables
 * Clean RBAC implementation
 * Suitable for learning and extension
-
