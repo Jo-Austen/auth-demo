@@ -139,6 +139,20 @@ This project uses JUnit 5 tags to separate default test coverage from longer flo
 * `core`: default tests that should pass on regular `mvn test`
 * `flow`: longer multi-step scenario tests that are run explicitly
 
+### Tag Guidelines
+
+* `core`: use for fast, stable, business-critical tests that should run by default
+* `flow`: use for multi-step scenarios where one request or state change affects the next
+* `manual`: use for tests that should only run when explicitly requested
+* `slow`: use for tests with higher execution cost that should not block normal feedback
+
+Rule of thumb:
+
+* If a test is quick, stable, and essential, tag it as `core`
+* If a test validates a full story or permission transition, tag it as `flow`
+* If a test is mainly for debugging or special verification, tag it as `manual`
+* If a test is valuable but expensive to run, tag it as `slow`
+
 ### Common Commands
 
 Run the default core test suite:
