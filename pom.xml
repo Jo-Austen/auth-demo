@@ -21,6 +21,9 @@
     <properties>
         <java.version>17</java.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <springdoc.version>2.6.0</springdoc.version>
+        <test.excludedTags>flow,manual,slow</test.excludedTags>
+        <test.includedTags></test.includedTags>
     </properties>
 
     <dependencies>
@@ -37,6 +40,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
 
         <dependency>
@@ -113,6 +122,14 @@
                             <version>${spring-boot.version}</version>
                         </path>
                     </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <groups>${test.includedTags}</groups>
+                    <excludedGroups>${test.excludedTags}</excludedGroups>
                 </configuration>
             </plugin>
             <plugin>

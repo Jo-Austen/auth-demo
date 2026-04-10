@@ -26,7 +26,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     private final PermissionGuard permissionGuard;
 
     @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             throw new UnauthenticatedException("Authentication token is required");

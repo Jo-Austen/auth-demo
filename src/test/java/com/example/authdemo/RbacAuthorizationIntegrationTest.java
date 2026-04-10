@@ -13,6 +13,7 @@ import com.example.authdemo.repository.RoleRepository;
 import com.example.authdemo.repository.UserRepository;
 import com.example.authdemo.repository.UserRoleRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -69,6 +70,7 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
+    @Tag("core")
     void shouldRejectRequestWithoutPermission() throws Exception {
         User user = createUser("reader");
         createRoleWithPermissions("USER_READER", List.of(PermissionCode.USER_READ), user);
@@ -89,6 +91,7 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
+    @Tag("core")
     void shouldAllowRequestWithPermission() throws Exception {
         User user = createUser("admin-user");
         createRoleWithPermissions("USER_ADMIN", List.of(PermissionCode.USER_CREATE), user);
@@ -109,6 +112,7 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
+    @Tag("core")
     void shouldProtectRolePermissionAssignmentEndpoint() throws Exception {
         User user = createUser("role-reader");
         Role role = roleRepository.save(Role.builder()
@@ -133,6 +137,7 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
+    @Tag("core")
     void shouldRequireAuthenticationForProtectedEndpoints() throws Exception {
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isUnauthorized())
@@ -140,6 +145,7 @@ class RbacAuthorizationIntegrationTest {
     }
 
     @Test
+    @Tag("core")
     void shouldAllowDeleteWhenUserHasDeletePermission() throws Exception {
         User operator = createUser("user-deleter");
         User victim = createUser("victim");
@@ -149,6 +155,78 @@ class RbacAuthorizationIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearerToken(operator)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
+    }
+
+    @Test
+    @Tag("flow")
+    void shouldAllowCreateAfterRoleAssignmentByAnotherUser() throws Exception {
+        User limitedUser = createUser("limited-user");
+        User operator = createUser("role-operator");
+
+        Role readOnlyRole = createRoleWithPermissions(
+                "USER_READ_ONLY",
+                List.of(PermissionCode.USER_READ),
+                limitedUser
+        );
+        Role creatorRole = roleRepository.save(Role.builder()
+                .code("USER_CREATOR")
+                .name("USER_CREATOR")
+                .description("Allows creating users")
+                .build());
+        List<Permission> creatorPermissions = List.of(createPermission(PermissionCode.USER_CREATE));
+        rolePermissionRepository.saveAll(creatorPermissions.stream()
+                .map(permission -> new RolePermission(creatorRole, permission))
+                .toList());
+
+        createRoleWithPermissions("USER_ROLE_OPERATOR", List.of(PermissionCode.USER_UPDATE), operator);
+
+        String limitedUserToken = bearerToken(limitedUser);
+        String operatorToken = bearerToken(operator);
+
+        mockMvc.perform(get("/api/users/{id}", limitedUser.getId())
+                        .header(HttpHeaders.AUTHORIZATION, limitedUserToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.username").value("limited-user"));
+
+        mockMvc.perform(post("/api/users")
+                        .header(HttpHeaders.AUTHORIZATION, limitedUserToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "created-before-upgrade",
+                                  "password": "password123",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403))
+                .andExpect(jsonPath("$.message").value("Missing permission: user:create"));
+
+        mockMvc.perform(put("/api/users/{id}/roles", limitedUser.getId())
+                        .header(HttpHeaders.AUTHORIZATION, operatorToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roleIds": [%d, %d]
+                                }
+                                """.formatted(readOnlyRole.getId(), creatorRole.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        mockMvc.perform(post("/api/users")
+                        .header(HttpHeaders.AUTHORIZATION, limitedUserToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "created-after-upgrade",
+                                  "password": "password123",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.username").value("created-after-upgrade"));
     }
 
     private User createUser(String username) {

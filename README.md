@@ -130,6 +130,53 @@ http://localhost:8080
 
 ---
 
+## 🧪 Test Execution
+
+This project uses JUnit 5 tags to separate default test coverage from longer flow-based tests.
+
+### Test Tags
+
+* `core`: default tests that should pass on regular `mvn test`
+* `flow`: longer multi-step scenario tests that are run explicitly
+
+### Common Commands
+
+Run the default core test suite:
+
+```bash
+export JAVA_HOME=/usr/local/Cellar/openjdk/23.0.2/libexec/openjdk.jdk/Contents/Home
+mvn -Dmaven.repo.local=/tmp/auth-demo-m2 test
+```
+
+Run a specific test class:
+
+```bash
+export JAVA_HOME=/usr/local/Cellar/openjdk/23.0.2/libexec/openjdk.jdk/Contents/Home
+mvn -Dmaven.repo.local=/tmp/auth-demo-m2 -Dtest=RbacAuthorizationIntegrationTest test
+```
+
+Run the tagged flow test explicitly:
+
+```bash
+export JAVA_HOME=/usr/local/Cellar/openjdk/23.0.2/libexec/openjdk.jdk/Contents/Home
+mvn -Dmaven.repo.local=/tmp/auth-demo-m2 -Dtest=RbacAuthorizationIntegrationTest#shouldAllowCreateAfterRoleAssignmentByAnotherUser -Dtest.includedTags=flow -Dtest.excludedTags= test
+```
+
+By default, `flow`, `manual`, and `slow` tests are excluded from `mvn test`.
+
+---
+
+## 🧾 API Documentation
+
+After starting the application, you can open:
+
+* Swagger UI: `http://localhost:8080/swagger-ui.html`
+* OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+
+For protected endpoints, click `Authorize` in Swagger UI and paste the JWT token returned by `POST /api/auth/login`.
+
+---
+
 ## 🌱 Seed Data
 
 On startup, the system initializes:
