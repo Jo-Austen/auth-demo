@@ -4,10 +4,14 @@ import com.example.authdemo.common.constant.PermissionCode;
 import com.example.authdemo.entity.User;
 import com.example.authdemo.support.base.BaseContractTest;
 import io.restassured.http.ContentType;
+import io.restassured.specification.RequestSpecification;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpHeaders;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
@@ -48,39 +52,6 @@ class UserApiContractTest extends BaseContractTest {
     }
 
     @Test
-    void listUsers_shouldReturnForbidden_whenTokenDoesNotHaveReadPermission() {
-        User operator = createUser("contract-user-creator");
-        createRoleWithPermissions("CONTRACT_USER_CREATOR", List.of(PermissionCode.USER_CREATE), operator);
-
-        given()
-                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator))
-                .when()
-                .get("/users")
-                .then()
-                .statusCode(403)
-                .body("code", equalTo(403))
-                .body("message", equalTo("Missing permission: user:read"))
-                .body("data", equalTo(null));
-    }
-
-    @Test
-    void getUserById_shouldReturnForbidden_whenTokenDoesNotHaveReadPermission() {
-        User operator = createUser("contract-user-creator");
-        User target = createUser("contract-target-user");
-        createRoleWithPermissions("CONTRACT_USER_CREATOR", List.of(PermissionCode.USER_CREATE), operator);
-
-        given()
-                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator))
-                .when()
-                .get("/users/{id}", target.getId())
-                .then()
-                .statusCode(403)
-                .body("code", equalTo(403))
-                .body("message", equalTo("Missing permission: user:read"))
-                .body("data", equalTo(null));
-    }
-
-    @Test
     void createUser_shouldReturnValidationError_whenRequestBodyIsInvalid() {
         User operator = createUser("contract-user-creator");
         createRoleWithPermissions("CONTRACT_USER_CREATOR", List.of(PermissionCode.USER_CREATE), operator);
@@ -95,94 +66,6 @@ class UserApiContractTest extends BaseContractTest {
                 .statusCode(400)
                 .body("code", equalTo(400))
                 .body("message", equalTo("Validation failed"))
-                .body("data", equalTo(null));
-    }
-
-    @Test
-    void createUser_shouldReturnForbidden_whenTokenDoesNotHaveCreatePermission() {
-        User operator = createUser("contract-user-reader");
-        createRoleWithPermissions("CONTRACT_USER_READER", List.of(PermissionCode.USER_READ), operator);
-
-        given()
-                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator))
-                .contentType(ContentType.JSON)
-                .body("""
-                        {
-                          "username": "contract-forbidden-user",
-                          "password": "password123",
-                          "enabled": true
-                        }
-                        """)
-                .when()
-                .post("/users")
-                .then()
-                .statusCode(403)
-                .body("code", equalTo(403))
-                .body("message", equalTo("Missing permission: user:create"))
-                .body("data", equalTo(null));
-    }
-
-    @Test
-    void updateUser_shouldReturnForbidden_whenTokenDoesNotHaveUpdatePermission() {
-        User operator = createUser("contract-user-reader");
-        User target = createUser("contract-target-user");
-        createRoleWithPermissions("CONTRACT_USER_READER", List.of(PermissionCode.USER_READ), operator);
-
-        given()
-                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator))
-                .contentType(ContentType.JSON)
-                .body("""
-                        {
-                          "username": "contract-updated-user",
-                          "enabled": true
-                        }
-                        """)
-                .when()
-                .put("/users/{id}", target.getId())
-                .then()
-                .statusCode(403)
-                .body("code", equalTo(403))
-                .body("message", equalTo("Missing permission: user:update"))
-                .body("data", equalTo(null));
-    }
-
-    @Test
-    void deleteUser_shouldReturnForbidden_whenTokenDoesNotHaveDeletePermission() {
-        User operator = createUser("contract-user-reader");
-        User target = createUser("contract-target-user");
-        createRoleWithPermissions("CONTRACT_USER_READER", List.of(PermissionCode.USER_READ), operator);
-
-        given()
-                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator))
-                .when()
-                .delete("/users/{id}", target.getId())
-                .then()
-                .statusCode(403)
-                .body("code", equalTo(403))
-                .body("message", equalTo("Missing permission: user:delete"))
-                .body("data", equalTo(null));
-    }
-
-    @Test
-    void assignRoles_shouldReturnForbidden_whenTokenDoesNotHaveUpdatePermission() {
-        User operator = createUser("contract-user-reader");
-        User target = createUser("contract-target-user");
-        createRoleWithPermissions("CONTRACT_USER_READER", List.of(PermissionCode.USER_READ), operator);
-
-        given()
-                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator))
-                .contentType(ContentType.JSON)
-                .body("""
-                        {
-                          "roleIds": []
-                        }
-                        """)
-                .when()
-                .put("/users/{id}/roles", target.getId())
-                .then()
-                .statusCode(403)
-                .body("code", equalTo(403))
-                .body("message", equalTo("Missing permission: user:update"))
                 .body("data", equalTo(null));
     }
 
@@ -210,5 +93,119 @@ class UserApiContractTest extends BaseContractTest {
                 .body("data.id", notNullValue())
                 .body("data.username", equalTo("contract-created-user"))
                 .body("data.enabled", equalTo(true));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("forbiddenUserApiCases")
+    void userApi_shouldReturnForbidden_whenTokenDoesNotHaveRequiredPermission(ForbiddenUserApiCase testCase) {
+        User operator = createUser("contract-forbidden-operator");
+        User target = createUser("contract-target-user");
+        createRoleWithPermissions("CONTRACT_GRANTED_ROLE", List.of(testCase.grantedPermission()), operator);
+
+        RequestSpecification request = given()
+                .header(HttpHeaders.AUTHORIZATION, bearerToken(operator));
+        if (testCase.requestBody() != null) {
+            request.contentType(ContentType.JSON).body(testCase.requestBody());
+        }
+
+        Object[] pathParams = testCase.requiresTargetUser() ? new Object[]{target.getId()} : new Object[0];
+        request
+                .when()
+                .request(testCase.method(), testCase.path(), pathParams)
+                .then()
+                .statusCode(403)
+                .body("code", equalTo(403))
+                .body("message", equalTo(testCase.expectedMessage()))
+                .body("data", equalTo(null));
+    }
+
+    private static Stream<ForbiddenUserApiCase> forbiddenUserApiCases() {
+        return Stream.of(
+                new ForbiddenUserApiCase(
+                        "list users requires user:read",
+                        "GET",
+                        "/users",
+                        false,
+                        null,
+                        PermissionCode.USER_CREATE,
+                        "Missing permission: user:read"
+                ),
+                new ForbiddenUserApiCase(
+                        "get user by id requires user:read",
+                        "GET",
+                        "/users/{id}",
+                        true,
+                        null,
+                        PermissionCode.USER_CREATE,
+                        "Missing permission: user:read"
+                ),
+                new ForbiddenUserApiCase(
+                        "create user requires user:create",
+                        "POST",
+                        "/users",
+                        false,
+                        """
+                                {
+                                  "username": "contract-forbidden-user",
+                                  "password": "password123",
+                                  "enabled": true
+                                }
+                                """,
+                        PermissionCode.USER_READ,
+                        "Missing permission: user:create"
+                ),
+                new ForbiddenUserApiCase(
+                        "update user requires user:update",
+                        "PUT",
+                        "/users/{id}",
+                        true,
+                        """
+                                {
+                                  "username": "contract-updated-user",
+                                  "enabled": true
+                                }
+                                """,
+                        PermissionCode.USER_READ,
+                        "Missing permission: user:update"
+                ),
+                new ForbiddenUserApiCase(
+                        "delete user requires user:delete",
+                        "DELETE",
+                        "/users/{id}",
+                        true,
+                        null,
+                        PermissionCode.USER_READ,
+                        "Missing permission: user:delete"
+                ),
+                new ForbiddenUserApiCase(
+                        "assign roles requires user:update",
+                        "PUT",
+                        "/users/{id}/roles",
+                        true,
+                        """
+                                {
+                                  "roleIds": []
+                                }
+                                """,
+                        PermissionCode.USER_READ,
+                        "Missing permission: user:update"
+                )
+        );
+    }
+
+    private record ForbiddenUserApiCase(
+            String name,
+            String method,
+            String path,
+            boolean requiresTargetUser,
+            String requestBody,
+            PermissionCode grantedPermission,
+            String expectedMessage
+    ) {
+
+        @Override
+        public String toString() {
+            return name;
+        }
     }
 }
